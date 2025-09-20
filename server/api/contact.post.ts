@@ -1,76 +1,65 @@
-import { defineEventHandler, readBody, setResponseStatus, setHeader, getMethod } from 'h3'
+// server/api/contact.post.ts
+import { readBody, setHeader, defineEventHandler } from 'h3'
 import nodemailer from 'nodemailer'
+import { useRuntimeConfig } from '#imports'
 
 export default defineEventHandler(async (event) => {
-  // Variables de entorno (Railway → Variables)
-  const {
-    allowedOrigin,
-    mailHost,
-    mailPort,
-    mailUser,
-    mailPass,
-    mailFrom
-  } = useRuntimeConfig()
+  const cfg = useRuntimeConfig()
 
-  // CORS: permite solo tu dominio de Netlify
-  if (allowedOrigin) {
-    setHeader(event, 'Access-Control-Allow-Origin', allowedOrigin)
+  // CORS preflight
+  if (event.method === 'OPTIONS') {
+    setHeader(event, 'Access-Control-Allow-Origin', cfg.allowedOrigin || '*')
     setHeader(event, 'Access-Control-Allow-Methods', 'POST, OPTIONS')
     setHeader(event, 'Access-Control-Allow-Headers', 'Content-Type')
-  }
-  if (getMethod(event) === 'OPTIONS') {
-    setResponseStatus(event, 204)
+    setHeader(event, 'Access-Control-Max-Age', '86400')
+    event.node.res.statusCode = 204
     return ''
   }
-
-  // Body
-  const body = await readBody<{
-    nombre?: string
-    email?: string
-    telefono?: string
-    mensaje?: string
-  }>(event)
-
-  const nombre = body?.nombre || ''
-  const email = body?.email || ''
-  const telefono = body?.telefono || ''
-  const mensaje = body?.mensaje || ''
-
-  if (!email || !mensaje) {
-    setResponseStatus(event, 400)
-    return { ok: false, error: 'Faltan campos requeridos' }
-  }
-
-  // Transporter
-  const transporter = nodemailer.createTransport({
-    host: mailHost,
-    port: Number(mailPort || 587),
-    secure: Number(mailPort) === 465, // true si usas 465
-    auth: { user: mailUser, pass: mailPass }
-  })
-
-  // HTML del correo (OJO: backticks bien cerrados)
-  const html = `
-    <h2>Nuevo mensaje de contacto</h2>
-    <p><b>Nombre:</b> ${nombre || '-'}</p>
-    <p><b>Email:</b> ${email}</p>
-    <p><b>Teléfono:</b> ${telefono || '-'}</p>
-    <p><b>Mensaje:</b><br>${(mensaje || '').replace(/\n/g, '<br>')}</p>
-  `
+  setHeader(event, 'Access-Control-Allow-Origin', cfg.allowedOrigin || '*')
 
   try {
-    await transporter.sendMail({
-      from: mailFrom,
-      to: mailFrom,          // envíatelo a ti mismo
-      replyTo: email,
-      subject: `Contacto: ${nombre || email}`, // <-- template string cerrada correctamente
-      html
+    const { nombre, email, telefono, mensaje } = await readBody(event) || {}
+    if (!nombre || !email || !mensaje) {
+      return { ok: false, error: 'Faltan campos obligatorios' }
+    }
+
+    const host = cfg.mailHost
+    const port = Number(cfg.mailPort) || 465
+    const user = cfg.mailUser
+    const pass = cfg.mailPass
+    const from = cfg.mailFrom || user
+    const to   = process.env.CONTACT_TO || cfg.contactTo || user  // <- usa CONTACT_TO
+
+    if (!host || !user || !pass || !to) {
+      return { ok: false, error: 'Config SMTP incompleta (host/user/pass/to)' }
+    }
+
+    const transporter = nodemailer.createTransport({
+      host,
+      port,
+      secure: port === 465, // true para 465
+      auth: { user, pass }
     })
 
-    return { ok: true }
-  } catch (err) {
-    console.error('Mailer error:', err)
-    setResponseStatus(event, 500)
-    return { ok: false, error: 'No se pudo enviar el correo' }
+    // Verifica conexión SMTP (útil para detectar credenciales inválidas)
+    await transporter.verify()
+
+    const info = await transporter.sendMail({
+      from,
+      to,
+      subject: `Nuevo mensaje de contacto: ${nombre}`,
+      replyTo: email,
+      text: `Nombre: ${nombre}\nEmail: ${email}\nTeléfono: ${telefono}\n\n${mensaje}`,
+      html: `<p><b>Nombre:</b> ${nombre}</p>
+             <p><b>Email:</b> ${email}</p>
+             <p><b>Teléfono:</b> ${telefono || '-'}</p>
+             <p><b>Mensaje:</b><br>${mensaje.replace(/\n/g, '<br>')}</p>`
+    })
+
+    return { ok: true, id: info.messageId }
+  } catch (err: any) {
+    // LOG al server para que lo veas en Railway
+    console.error('MAIL_ERROR:', err?.message, err)
+    return { ok: false, error: err?.message || 'No se pudo enviar el correo' }
   }
 })
