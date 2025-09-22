@@ -3,17 +3,18 @@ import { defineEventHandler, readBody, setResponseStatus, setHeader, getMethod }
 import nodemailer from 'nodemailer'
 
 export default defineEventHandler(async (event) => {
-  // ENV de Railway (Project → Variables)
+  // 🔒 Variables privadas desde runtimeConfig (local .env o Railway)
   const {
-    allowedOrigin,   // ALLOWED_ORIGIN = https://tu-sitio.netlify.app
-    mailHost,        // MAIL_HOST = smtp.gmail.com
-    mailPort,        // MAIL_PORT = 465 (recomendado) o 587
-    mailUser,        // MAIL_USER = tu_gmail@gmail.com
-    mailPass,        // MAIL_PASS = App Password de Gmail
-    mailFrom         // MAIL_FROM (opcional, usualmente igual a MAIL_USER)
+    allowedOrigin,         // ALLOWED_ORIGIN
+    mailHost,              // MAIL_HOST
+    mailPort,              // MAIL_PORT (465 o 587)
+    mailUser,              // MAIL_USER
+    mailPass,              // MAIL_PASS (App Password si es Gmail)
+    mailFrom,              // MAIL_FROM
+    contactTo              // CONTACT_TO
   } = useRuntimeConfig()
 
-  // CORS: permite solo tu frontend
+  // CORS (solo tu frontend)
   if (allowedOrigin) {
     setHeader(event, 'Access-Control-Allow-Origin', allowedOrigin)
     setHeader(event, 'Access-Control-Allow-Methods', 'POST, OPTIONS')
@@ -24,12 +25,8 @@ export default defineEventHandler(async (event) => {
     return ''
   }
 
-  // Body
   const body = await readBody<{
-    nombre?: string
-    email?: string
-    telefono?: string
-    mensaje?: string
+    nombre?: string; email?: string; telefono?: string; mensaje?: string;
   }>(event)
 
   const nombre   = body?.nombre   || ''
@@ -42,18 +39,17 @@ export default defineEventHandler(async (event) => {
     return { ok: false, error: 'Faltan campos requeridos' }
   }
 
-  // Transporter
   const portNum = Number(mailPort || 587)
+
   const transporter = nodemailer.createTransport({
-    host: mailHost,                 // ej: smtp.gmail.com
-    port: portNum,                  // 465 => secure true (SSL)
-    secure: portNum === 465,        // true si 465; false si 587 (STARTTLS)
+    host: mailHost,
+    port: portNum,
+    secure: portNum === 465,                 // 465 = SSL; 587 = STARTTLS
     auth: { user: mailUser, pass: mailPass },
-    // Opcional, ayuda en algunos proveedores/redes:
+    // ayuda cuando el host resuelve a IPv6 o hay SNI estricto:
     tls: { servername: mailHost }
   })
 
-  // Contenido del correo
   const html = `
     <h2>Nuevo mensaje de contacto</h2>
     <p><b>Nombre:</b> ${nombre || '-'}</p>
@@ -63,12 +59,12 @@ export default defineEventHandler(async (event) => {
   `
 
   try {
-    // Verifica conexión SMTP (útil para detectar credenciales erróneas)
+    // Útil para ver errores de credenciales/puerto antes de enviar
     await transporter.verify()
 
     await transporter.sendMail({
-      from: mailFrom || mailUser,                           // remitente
-      to: process.env.CONTACT_TO || (mailFrom || mailUser), // destinatario
+      from: mailFrom || mailUser,
+      to: contactTo || mailFrom || mailUser,   // ✅ sin process.env
       replyTo: email,
       subject: `Contacto: ${nombre || email}`,
       html
@@ -76,7 +72,7 @@ export default defineEventHandler(async (event) => {
 
     return { ok: true }
   } catch (err: any) {
-    console.error('Mailer error:', err?.response || err?.message || err)
+    console.error('Mailer error:', err?.code, err?.response?.toString?.() || err?.message)
     setResponseStatus(event, 500)
     return { ok: false, error: 'No se pudo enviar el correo' }
   }
