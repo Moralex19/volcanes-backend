@@ -4,16 +4,14 @@
   "scripts": {
     "dev": "nuxt dev",
     "build": "nuxt build",
-    "start": "nuxt start"
-  },
-  "dependencies": {
-    "nodemailer": "^6.9.0",
-    "nuxt": "^3.19.0",
-    "resend": "^6.1.0"
+    "start": "node .output/server/index.mjs"
   },
   "engines": {
-  "node": "18.x",
-  "npm": "9.x"
-}
-
+    "node": "18.x",
+    "npm": "9.x"
+  },
+  "dependencies": {
+    "nuxt": "3.12.4",
+    "nodemailer": "^6.9.14"
+  }
 }
