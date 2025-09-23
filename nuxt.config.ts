@@ -8,7 +8,7 @@ export default defineNuxtConfig({
     mailUser: process.env.MAIL_USER,
     mailPass: process.env.MAIL_PASS,
     mailFrom: process.env.MAIL_FROM,
-    contactTo: process.env.CONTACT_TO,     // <-- añade esto si lo usarás
+    contactTo: process.env.CONTACT_TO,   
     allowedOrigin: process.env.ALLOWED_ORIGIN
   }
 })
